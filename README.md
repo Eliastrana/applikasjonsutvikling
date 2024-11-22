@@ -34,8 +34,7 @@ A Flutter-based mobile application for managing to-do lists and tasks with featu
 
       ```bash
       flutter run --release
-       ```
-      
+      ```
 4. Select the connected device from the list of available devices.
 5. The app will be built and installed on your device.
 
