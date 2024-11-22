@@ -1,97 +1,169 @@
 import 'package:flutter/material.dart';
-import 'models.dart'; // Import models
-import 'task_widget.dart'; // Import TaskWidget
-import 'file_utils.dart'; // Import file utilities
+import 'models.dart';
+import 'task_widget.dart';
+import 'file_utils.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
 
+/// The ListScreen widget allows users to view and manage tasks within a specific to-do list.
+///
+/// Users can add, delete, and reorder tasks, as well as delete the entire list.
 class ListScreen extends StatefulWidget {
+  /// The current to-do list being managed.
   final ToDoList toDoList;
+
+  /// Indicates whether the to-do list is newly created.
   final bool isNewList;
+
+  /// A list of all available to-do lists for navigation.
   final List<ToDoList> availableLists;
 
+  /// Creates a [ListScreen].
+  ///
+  /// [toDoList] The to-do list to manage.
+  /// [isNewList] Whether the to-do list is new.
+  /// [availableLists] The list of available to-do lists.
   ListScreen({
+    Key? key,
     required this.toDoList,
     required this.isNewList,
     required this.availableLists,
-  });
+  }) : super(key: key);
 
   @override
   _ListScreenState createState() => _ListScreenState();
 }
 
+/// The state for [ListScreen].
+///
+/// Manages loading tasks, adding new tasks, deleting tasks, and handling list deletions.
 class _ListScreenState extends State<ListScreen> {
+  /// The current to-do list being managed.
   late ToDoList toDoList;
-  late TextEditingController _listNameController;
+
+  /// Controller for the task input field.
+  late TextEditingController _taskController;
+
+  /// Focus node for the task input field.
+  final FocusNode _taskFocusNode = FocusNode();
+
+  /// Indicates whether the current list has been deleted.
   bool _isDeleted = false;
-  String? _focusedTaskId;
 
   @override
   void initState() {
     super.initState();
     toDoList = widget.toDoList;
-    _listNameController = TextEditingController(text: toDoList.name);
+    _taskController = TextEditingController();
     _loadTasks();
-  }
 
-  Future<void> _loadTasks() async {
-    ToDoList loadedList = await loadList(toDoList.id);
-    setState(() {
-      toDoList = loadedList;
-      _listNameController.text = toDoList.name;
-    });
-  }
-
-  Future<void> _saveTasks() async {
-    if (_isDeleted) return; // Do not save if the list has been deleted
-    toDoList.name = _listNameController.text;
-    await saveList(toDoList);
-  }
-
-  void _addTaskAtIndex(int index) {
-    // Generate a unique id for the new task
-    final newId = Uuid().v4();
-
-    setState(() {
-      toDoList.tasks.insert(index + 1, Task(id: newId, title: '', completed: false));
-      _focusedTaskId = newId; // Set the focused task ID
-    });
-
-    // Clear the focused task ID after the frame is built
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      setState(() {
-        _focusedTaskId = null;
-      });
-    });
-  }
-
-  void _deleteTaskAndFocusPrevious(int index) {
-    setState(() {
-      toDoList.tasks.removeAt(index);
-    });
-
-    int previousIndex = index - 1;
-    if (previousIndex >= 0 && previousIndex < toDoList.tasks.length) {
-      setState(() {
-        _focusedTaskId = toDoList.tasks[previousIndex].id;
-      });
-    } else if (toDoList.tasks.isNotEmpty) {
-      setState(() {
-        _focusedTaskId = toDoList.tasks[0].id;
+    if (widget.isNewList) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _promptForListTitle();
       });
     }
 
-    // Clear the focused task ID after the frame is built
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      FocusScope.of(context).requestFocus(_taskFocusNode);
+    });
+  }
+
+  /// Loads tasks from local storage for the current to-do list.
+  Future<void> _loadTasks() async {
+    try {
+      ToDoList loadedList = await loadList(toDoList.id);
       setState(() {
-        _focusedTaskId = null;
+        toDoList = loadedList;
       });
+    } catch (e) {
+      print('Error loading tasks: $e');
+    }
+  }
+
+  /// Saves the current state of the to-do list to local storage.
+  Future<void> _saveTasks() async {
+    if (_isDeleted) return;
+    await saveList(toDoList);
+  }
+
+  /// Adds a new task to the to-do list.
+  ///
+  /// [title] The title of the new task.
+  void _addTask(String title) {
+    if (title.trim().isEmpty) return;
+
+    setState(() {
+      Task newTask = Task(
+        id: Uuid().v4(),
+        title: title.trim(),
+        completed: false,
+      );
+      toDoList.tasks.add(newTask);
+      _sortTasks();
     });
 
     _saveTasks();
+
+    _taskController.clear();
+    FocusScope.of(context).requestFocus(_taskFocusNode);
   }
 
-  void _showDeleteConfirmation() {
+  /// Deletes a task at the specified index from the to-do list.
+  ///
+  /// [index] The index of the task to delete.
+  void _deleteTask(int index) async {
+    if (index < 0 || index >= toDoList.tasks.length) return;
+    setState(() {
+      toDoList.tasks.removeAt(index);
+    });
+    await _saveTasks();
+  }
+
+  /// Displays a confirmation dialog before deleting a task.
+  ///
+  /// [index] The index of the task to delete.
+  void _showDeleteConfirmation(int index) {
+    if (index < 0 || index >= toDoList.tasks.length) return;
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(
+            'Slett oppgave',
+            style: TextStyle(color: Colors.black),
+          ),
+          content: Text(
+            'Er du sikker på at du vil slette oppgaven "${toDoList.tasks[index].title}"?',
+            style: TextStyle(color: Colors.black),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _deleteTask(index);
+              },
+              child: Text(
+                'Slett',
+                style: TextStyle(color: Colors.black),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text(
+                'Avbryt',
+                style: TextStyle(color: Colors.black),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Displays a confirmation dialog before deleting the entire to-do list.
+  void _showDeleteListConfirmation() {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -104,19 +176,16 @@ class _ListScreenState extends State<ListScreen> {
                 Navigator.of(context).pop();
                 _deleteCurrentList();
               },
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.blue,
-              ),
-              child: Text('Slett'),
+              child: Text('Slett',
+                  style: TextStyle(color: Colors.black)),
             ),
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
               },
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.black,
+              child: Text('Avbryt',
+                style: TextStyle(color: Colors.black),
               ),
-              child: Text('Avbryt'),
             ),
           ],
         );
@@ -124,61 +193,132 @@ class _ListScreenState extends State<ListScreen> {
     );
   }
 
+  /// Deletes the current to-do list and navigates back to the home screen.
   void _deleteCurrentList() async {
-    // Delete the list file
     await deleteListFile(toDoList.id);
     setState(() {
-      _isDeleted = true; // Mark the list as deleted
+      _isDeleted = true;
     });
-    Navigator.of(context).pop('reload'); // Pass 'reload' back to HomeScreen
+    Navigator.of(context).pop('reload');
+  }
+
+  /// Prompts the user to enter a title for a new to-do list.
+  void _promptForListTitle() {
+    TextEditingController _titleController =
+    TextEditingController(text: toDoList.name);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Gi listen et navn'),
+          content: TextField(
+            controller: _titleController,
+            decoration: InputDecoration(
+              hintText: 'Tittel',
+
+            ),
+            autofocus: true,
+            textCapitalization: TextCapitalization.sentences,
+            onSubmitted: (value) {
+              _updateListTitle(value.trim());
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                String title = _titleController.text.trim();
+                _updateListTitle(title);
+              },
+              child: Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Updates the title of the current to-do list.
+  ///
+  /// [title] The new title for the to-do list.
+  void _updateListTitle(String title) {
+    if (title.isNotEmpty) {
+      setState(() {
+        toDoList.name = title;
+
+        final listIndex = widget.availableLists.indexWhere(
+              (list) => list.id == toDoList.id,
+        );
+        if (listIndex != -1) {
+          widget.availableLists[listIndex].name = title;
+        }
+      });
+      _saveTasks();
+      Navigator.of(context).pop('reload');
+    }
+  }
+
+  /// Sorts tasks based on their completion status.
+  ///
+  /// Incomplete tasks appear before completed tasks.
+  void _sortTasks() {
+    toDoList.tasks.sort((a, b) {
+      if (a.completed == b.completed) {
+        return 0;
+      } else if (a.completed) {
+        return 1;
+      } else {
+        return -1;
+      }
+    });
   }
 
   @override
   void dispose() {
-    _saveTasks(); // Save the list when the screen is disposed
-    _listNameController.dispose();
+    _saveTasks();
+    _taskController.dispose();
+    _taskFocusNode.dispose();
     super.dispose();
   }
 
+  /// Builds UI elements for navigating between available to-do lists.
+  ///
+  /// Returns a [Widget] containing pills for each available list.
   Widget _buildAvailableListsPills() {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.start, // Left-align the pills
-        children: widget.availableLists
-            .where((list) => list.name.isNotEmpty) // Filter lists with a name
-            .map((list) {
-          // Determine if this list is the current list
-          bool isCurrentList = list.id == toDoList.id;
-
-          return GestureDetector(
-            onTap: () {
-              if (!isCurrentList) {
-                // Navigate to the selected list
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => ListScreen(
-                      toDoList: list,
-                      isNewList: false,
-                      availableLists: widget.availableLists,
+        children: widget.availableLists.map((list) {
+          bool isCurrent = list.id == toDoList.id;
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: GestureDetector(
+              onTap: () {
+                if (!isCurrent) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ListScreen(
+                        toDoList: list,
+                        isNewList: false,
+                        availableLists: widget.availableLists,
+                      ),
                     ),
+                  ).then((_) => _loadTasks());
+                }
+              },
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isCurrent ? Colors.blue.shade100 : Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  list.name,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
                   ),
-                );
-              }
-            },
-            child: Container(
-              padding: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-              margin: EdgeInsets.symmetric(horizontal: 4),
-              decoration: BoxDecoration(
-                color: isCurrentList ? Colors.blue.shade100 : Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                list.name,
-                style: TextStyle(
-                  color: isCurrentList ? Colors.black : Colors.black,
-                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
@@ -190,67 +330,63 @@ class _ListScreenState extends State<ListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Format the creation date
-    String formattedDate = DateFormat('dd.MM.yyyy').format(toDoList.createdDate);
+    // Ensure tasks are sorted whenever the widget rebuilds
+    _sortTasks();
 
-    return WillPopScope(
-      onWillPop: () async {
-        // Return 'reload' when navigating back
-        Navigator.of(context).pop('reload');
-        return false; // Prevent default back navigation
-      },
-      child: Scaffold(
-        // Allow the Scaffold to adjust when the keyboard appears
-        resizeToAvoidBottomInset: true,
-        appBar: AppBar(
-          title: Text(''),
-          actions: [
-            IconButton(
-              icon: Icon(Icons.delete),
-              onPressed: () {
-                _showDeleteConfirmation();
-              },
-            ),
-          ],
-        ),
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Horizontal list of available lists
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: _buildAvailableListsPills(),
-            ),
-            // List name TextField and creation date
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(''),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.delete),
+            onPressed: _showDeleteListConfirmation,
+            tooltip: 'Delete List',
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Available Lists Pills
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: _buildAvailableListsPills(),
+          ),
+          // List name and date
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Align(
+              alignment: Alignment.centerLeft, // Ensure left alignment
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start, // Ensure left alignment
                 children: [
-                  TextField(
-                    controller: _listNameController,
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                    decoration: InputDecoration(
-                      hintText: 'Skriv inn navn på listen',
-                      border: InputBorder.none,
+                  GestureDetector(
+                    onTap: () {
+                      _promptForListTitle(); // Open the title editing dialog
+                    },
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            toDoList.name.isEmpty
+                                ? ' '
+                                : toDoList.name,
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          Icons.edit,
+                          size: 18,
+                          color: Colors.grey,
+                        ), // Add an edit icon
+                      ],
                     ),
-                    onChanged: (value) {
-                      setState(() {
-                        toDoList.name = value;
-                      });
-                      // Save the name change
-                      _saveTasks();
-                    },
-                    onSubmitted: (value) {
-                      // Automatically start a new task when Enter is pressed
-                      if (toDoList.tasks.isEmpty) {
-                        _addTaskAtIndex(-1); // Add at the beginning
-                      }
-                    },
                   ),
-                  SizedBox(height: 8),
+                  SizedBox(height: 4),
                   Text(
-                    '$formattedDate',
+                    DateFormat('dd.MM.yyyy').format(toDoList.createdDate),
                     style: TextStyle(
                       fontSize: 14,
                       color: Colors.black54,
@@ -259,75 +395,89 @@ class _ListScreenState extends State<ListScreen> {
                 ],
               ),
             ),
-            // Expanded widget to fill the remaining space
-            Expanded(
-              child: toDoList.tasks.isEmpty
-                  ? Center(
-                child: Text(
-                  'Ingen oppgaver ennå.\nTrykk på "+" for å legge til en.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
+          ),
+          SizedBox(height: 16),
+          // Fixed Input field for adding tasks
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _taskController,
+                    focusNode: _taskFocusNode,
+                    textInputAction: TextInputAction.done,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: InputDecoration(
+                      hintText: 'Legg til nytt punkt',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8.0),
+                      ),
+                      contentPadding:
+                      EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    onSubmitted: (value) {
+                      _addTask(value);
+                    },
+                  ),
                 ),
-              )
-                  : ReorderableListView.builder(
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.of(context).viewInsets.bottom,
+                SizedBox(width: 8),
+                IconButton(
+                  icon: Icon(Icons.add),
+                  onPressed: () {
+                    _addTask(_taskController.text);
+                  },
+                  tooltip: 'Add Task',
                 ),
-                onReorder: (oldIndex, newIndex) {
-                  setState(() {
-                    if (newIndex > oldIndex) {
-                      newIndex -= 1;
-                    }
-                    final task = toDoList.tasks.removeAt(oldIndex);
-                    toDoList.tasks.insert(newIndex, task);
-                  });
-                  _saveTasks();
-                },
-                itemCount: toDoList.tasks.length,
-                itemBuilder: (context, index) {
-                  Task task = toDoList.tasks[index];
-
-                  return TaskWidget(
-                    key: ValueKey(task.id),
-                    index: index, // Pass the index
-                    task: task,
-                    shouldFocus: task.id == _focusedTaskId,
-                    onUpdate: (updatedTask) {
+              ],
+            ),
+          ),
+          SizedBox(height: 16),
+          // Task list
+          Expanded(
+            child: toDoList.tasks.isEmpty
+                ? Center(
+              child: Text(
+                'Ingen oppgaver ennå.\nLegg til en oppgave over.',
+                textAlign: TextAlign.center,
+                style:
+                TextStyle(fontSize: 18, color: Colors.grey.shade600),
+              ),
+            )
+                : ReorderableListView(
+              padding: EdgeInsets.only(bottom: 16),
+              children: [
+                for (int index = 0; index < toDoList.tasks.length; index++)
+                  TaskWidget(
+                    key: ValueKey(toDoList.tasks[index].id),
+                    task: toDoList.tasks[index],
+                    onCheckboxChanged: (bool? value) {
                       setState(() {
-                        bool previousCompletedStatus = toDoList.tasks[index].completed;
-                        toDoList.tasks[index] = updatedTask;
-                        if (updatedTask.completed != previousCompletedStatus) {
-                          // Remove the task from its current position
-                          final task = toDoList.tasks.removeAt(index);
-                          if (updatedTask.completed) {
-                            // Move the task to the bottom
-                            toDoList.tasks.add(task);
-                          } else {
-                            // Move the task to the top
-                            toDoList.tasks.insert(0, task);
-                          }
-                        }
+                        toDoList.tasks[index].completed =
+                            value ?? false;
+                        _sortTasks();
                       });
                       _saveTasks();
                     },
                     onDelete: () {
-                      _deleteTaskAndFocusPrevious(index);
+                      _showDeleteConfirmation(index);
                     },
-                    onAddTask: () {
-                      _addTaskAtIndex(index);
-                    },
-                  );
-                },
-              ),
+                  ),
+              ],
+              onReorder: (oldIndex, newIndex) {
+                setState(() {
+                  if (newIndex > oldIndex) {
+                    newIndex -= 1;
+                  }
+                  final task = toDoList.tasks.removeAt(oldIndex);
+                  toDoList.tasks.insert(newIndex, task);
+                  _sortTasks();
+                });
+                _saveTasks();
+              },
             ),
-          ],
-        ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: () {
-            _addTaskAtIndex(toDoList.tasks.length - 1);
-          },
-          child: Icon(Icons.add),
-        ),
+          ),
+        ],
       ),
     );
   }

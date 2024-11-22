@@ -1,18 +1,22 @@
 import 'package:flutter/material.dart';
-import 'list_screen.dart'; // Import ListScreen
-import 'models.dart'; // Import models
-import 'file_utils.dart'; // Import file utilities
-import 'dart:convert';
+import 'list_screen.dart';
+import 'models.dart';
+import 'file_utils.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
 
+/// The HomeScreen widget displays all available to-do lists and provides
+/// functionality to create new lists or delete existing ones.
 class HomeScreen extends StatefulWidget {
-  // The main screen displaying all lists
   @override
   _HomeScreenState createState() => _HomeScreenState();
 }
 
+/// The state for [HomeScreen].
+///
+/// Manages loading, creating, and deleting to-do lists.
 class _HomeScreenState extends State<HomeScreen> {
+  /// The list of all available to-do lists.
   List<ToDoList> lists = [];
 
   @override
@@ -21,15 +25,16 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadLists();
   }
 
+  /// Loads all existing to-do lists from local storage and updates the state.
   Future<void> _loadLists() async {
     List<ToDoList> loadedLists = await loadAllLists();
     setState(() {
-      // Sort the lists by createdDate, newest first
       loadedLists.sort((a, b) => b.createdDate.compareTo(a.createdDate));
       lists = loadedLists;
     });
   }
 
+  /// Creates a new to-do list with a unique ID and navigates to the [ListScreen] for editing.
   void _createNewList() {
     String newListId = Uuid().v4();
     ToDoList newList = ToDoList(
@@ -39,29 +44,32 @@ class _HomeScreenState extends State<HomeScreen> {
       tasks: [],
     );
 
-    List<ToDoList> tempAvailableLists = [...lists, newList];
-
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ListScreen(
           toDoList: newList,
           isNewList: true,
-          availableLists: tempAvailableLists,
+          availableLists: [...lists, newList],
         ),
       ),
-    ).then((value) {
-      if (value == 'reload') {
-        _loadLists();
-      }
+    ).then((_) {
+      _loadLists();
     });
   }
 
+  /// Deletes a specified to-do list by its ID and refreshes the list of available lists.
+  ///
+  /// [listId] The unique identifier of the to-do list to delete.
   void _deleteList(String listId) async {
     await deleteListFile(listId);
     _loadLists();
   }
 
+  /// Displays a confirmation dialog before deleting a to-do list.
+  ///
+  /// [listId] The unique identifier of the to-do list.
+  /// [listName] The name of the to-do list.
   void _showDeleteConfirmation(String listId, String listName) {
     showDialog(
       context: context,
@@ -75,13 +83,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 Navigator.of(context).pop();
                 _deleteList(listId);
               },
-              child: Text('Slett'),
+              child: Text(
+                'Slett',
+                style: TextStyle(color: Colors.black),
+              ),
             ),
             TextButton(
               onPressed: () {
-                Navigator.of(context).pop(); // Close the dialog
+                Navigator.of(context).pop();
               },
-              child: Text('Avbryt'),
+              child: Text(
+                'Avbryt',
+                style: TextStyle(color: Colors.black),
+              ),
             ),
           ],
         );
@@ -89,6 +103,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Builds the UI element for adding a new to-do list.
+  ///
+  /// Returns a [Widget] representing the add new list tile.
   Widget _buildAddNewListTile() {
     return GestureDetector(
       onTap: _createNewList,
@@ -101,14 +118,23 @@ class _HomeScreenState extends State<HomeScreen> {
           Icons.add,
           size: 50,
           color: Colors.blue.shade100,
+          semanticLabel: 'Add New List',
         ),
       ),
     );
   }
 
+  /// Builds the UI element for an individual to-do list.
+  ///
+  /// [list] The [ToDoList] to display.
+  ///
+  /// Returns a [Widget] representing the list tile.
   Widget _buildListTile(ToDoList list) {
-    // Format the creation date
     String formattedDate = DateFormat('dd.MM.yyyy').format(list.createdDate);
+
+    String displayTitle = list.name.length > 20
+        ? '${list.name.substring(0, 20)}...'
+        : list.name;
 
     return GestureDetector(
       onTap: () {
@@ -121,10 +147,8 @@ class _HomeScreenState extends State<HomeScreen> {
               availableLists: lists,
             ),
           ),
-        ).then((value) {
-          if (value == 'reload') {
-            _loadLists();
-          }
+        ).then((_) {
+          _loadLists();
         });
       },
       onLongPress: () {
@@ -140,7 +164,7 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              list.name,
+              displayTitle.isEmpty ? 'Uten tittel' : displayTitle,
               style: TextStyle(
                 fontSize: 20,
                 color: Colors.black87,
@@ -173,13 +197,17 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Lister'),
+        centerTitle: true,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: lists.isEmpty
             ? Center(child: _buildAddNewListTile())
             : GridView.count(
-          crossAxisCount: 2,
+          crossAxisCount:
+          MediaQuery.of(context).orientation == Orientation.portrait
+              ? 2
+              : 3,
           mainAxisSpacing: 16,
           crossAxisSpacing: 16,
           children: tiles,
