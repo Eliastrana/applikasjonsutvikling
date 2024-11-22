@@ -1,6 +1,6 @@
 # Husk
 
-![Husk Logo]('./assets/husk.png')
+![Husk Logo](assets/husk.png)
 
 A Flutter-based mobile application for managing to-do lists and tasks with features like adding, deleting, and reordering tasks. This app can be run on both Android and iOS platforms.
 
